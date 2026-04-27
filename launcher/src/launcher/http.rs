@@ -1,4 +1,4 @@
-use curl::easy::{Easy2, Handler, WriteError};
+use curl::easy::{Easy2, Handler, List, WriteError};
 use std::io::Write;
 use std::time::Duration;
 
@@ -76,13 +76,17 @@ pub fn download_file<P: Progress>(
     Ok(())
 }
 
-struct Collector {
+pub struct Collector {
     data: Vec<u8>,
 }
 
 impl Collector {
     pub fn new() -> Self {
         Self { data: Vec::new() }
+    }
+
+    pub fn get_data(&self) -> Vec<u8> {
+        self.data.clone()
     }
 }
 
@@ -93,15 +97,39 @@ impl Handler for Collector {
     }
 }
 
-pub fn download_str(url: &str, timeout: Option<Duration>) -> anyhow::Result<String> {
-    let mut easy = build_easy_get(url, Collector::new())?;
-    if let Some(timeout) = timeout {
-        easy.timeout(timeout)?;
-    }
-    easy.perform()?;
-    let handler = easy.get_ref();
+pub struct RequestBuilder<'a> {
+    url: &'a str,
+    timeout: Option<Duration>,
+    headers: List,
+}
 
-    Ok(String::from_utf8(handler.data.clone())?)
+impl<'a> RequestBuilder<'a> {
+    pub fn new(url: &'a str) -> Self {
+        Self {
+            url,
+            timeout: None,
+            headers: List::new(),
+        }
+    }
+
+    pub fn timeout(&mut self, timeout: Duration) -> &mut Self {
+        self.timeout = Some(timeout);
+        self
+    }
+
+    pub fn add_header(&mut self, header: &str) -> Result<&mut Self, curl::Error> {
+        self.headers.append(header)?;
+        Ok(self)
+    }
+
+    pub fn build(self) -> Result<Easy2<Collector>, curl::Error> {
+        let mut easy = build_easy_get(self.url, Collector::new())?;
+        if let Some(timeout) = self.timeout {
+            easy.timeout(timeout)?;
+        }
+        easy.http_headers(self.headers)?;
+        Ok(easy)
+    }
 }
 
 fn build_easy_get<H: Handler>(url: &str, handler: H) -> Result<Easy2<H>, curl::Error> {

@@ -25,6 +25,10 @@ pub fn run_gui(updates: Arc<Vec<ComponentUpdates>>) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub fn get_title() -> String {
+    format!("CoD4x Updater {}", env!("CARGO_PKG_VERSION"))
+}
+
 fn enable_visual_styles() {
     use winapi::shared::basetsd::ULONG_PTR;
     use winapi::shared::minwindef::{DWORD, ULONG};
@@ -78,7 +82,7 @@ impl nwg::NativeUi<UpdaterGui> for Updater {
             )
             .size((WINDOW_WIDTH, WINDOW_HEIGHT))
             .position((center_x, center_y))
-            .title("CoD4x Updater")
+            .title(get_title().as_str())
             .build(&mut data.window)?;
 
         // Controls

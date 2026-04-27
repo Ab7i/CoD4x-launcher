@@ -16,21 +16,21 @@ fn get_updates() -> Vec<(Vec<Update>, Box<dyn Component>)> {
         Ok(component) => components.push(Box::new(component)),
         Err(e) => msg_box::message_box(
             format!("Error updating CoD4x:\n{e}").as_str(),
-            "CoD4x Updater",
+            gui::get_title().as_str(),
         ),
     }
     match launcher::LauncherComponent::new() {
         Ok(component) => components.push(Box::new(component)),
         Err(e) => msg_box::message_box(
             format!("Error updating launcher:\n{e}").as_str(),
-            "CoD4x Updater",
+            gui::get_title().as_str(),
         ),
     }
     match mss32::Mss32Component::new() {
         Ok(component) => components.push(Box::new(component)),
         Err(e) => msg_box::message_box(
             format!("Error updating Miles Loader:\n{e}").as_str(),
-            "CoD4x Updater",
+            gui::get_title().as_str(),
         ),
     }
 
@@ -94,8 +94,9 @@ pub fn run_updater(is_elevated: bool) -> anyhow::Result<()> {
         });
 
     let update_message = build_updates_message(&updates, needs_elevation);
+    let title = gui::get_title();
     let params = nwg::MessageParams {
-        title: "CoD4x Updater",
+        title: title.as_str(),
         content: update_message.as_str(),
         buttons: nwg::MessageButtons::YesNo,
         icons: nwg::MessageIcons::Question,
@@ -127,7 +128,7 @@ pub fn run_updater(is_elevated: bool) -> anyhow::Result<()> {
     if needs_restart {
         msg_box::message_box(
             "Update installed, the game will restart now.",
-            "CoD4x Updater",
+            gui::get_title().as_str(),
         );
         process::restart(process::Privileges::User, None)?;
     }

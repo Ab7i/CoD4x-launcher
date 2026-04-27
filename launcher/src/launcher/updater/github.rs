@@ -15,38 +15,64 @@ pub struct ReleaseInformation {
     pub assets: Vec<AssetInformation>,
 }
 
-pub fn fetch_release_information(repository_path: &str) -> Result<ReleaseInformation, ParseError> {
+struct Response {
+    data: String,
+    status: u32,
+}
+
+fn api_get_request(url: &str) -> anyhow::Result<Response> {
+    let mut builder = http::RequestBuilder::new(url);
+    builder.add_header("X-GitHub-Api-Version: 2026-03-10")?;
+    builder.timeout(Duration::from_secs(3));
+    let req = builder.build()?;
+
+    req.perform()?;
+    let handler = req.get_ref();
+
+    Ok(Response {
+        data: String::from_utf8(handler.get_data())?,
+        status: req.response_code().unwrap_or(0),
+    })
+}
+
+pub fn fetch_release_information(repository_path: &str) -> Result<ReleaseInformation, FetchError> {
     let url = format!("https://api.github.com/repos/{repository_path}/releases/latest");
-    let response = http::download_str(url.as_str(), Some(Duration::from_secs(3)))
-        .map_err(|_| ParseError::FetchError)?;
+    let response = api_get_request(url.as_str()).map_err(|_| FetchError::RequestError)?;
+    if response.status != 200 {
+        if response.status == 403 {
+            return Err(FetchError::Forbidden);
+        }
+        return Err(FetchError::RequestError);
+    }
+
     let response_json: json::Value =
-        json::from_str(response.as_str()).map_err(|_| ParseError::InvalidResponse)?;
+        json::from_str(response.data.as_str()).map_err(|_| FetchError::InvalidResponse)?;
 
     let tag_name = response_json
         .pointer("/tag_name")
-        .ok_or(ParseError::TagName)?
+        .ok_or(FetchError::TagName)?
         .as_str()
-        .ok_or(ParseError::TagName)?;
+        .ok_or(FetchError::TagName)?;
 
     let release_assets_json = response_json
         .pointer("/assets")
-        .ok_or(ParseError::ReleaseAssets)?
+        .ok_or(FetchError::ReleaseAssets)?
         .as_array()
-        .ok_or(ParseError::ReleaseAssets)?;
+        .ok_or(FetchError::ReleaseAssets)?;
 
     let mut assets = Vec::<AssetInformation>::new();
     for asset_json in release_assets_json {
         let asset_name = asset_json
             .pointer("/name")
-            .ok_or(ParseError::ReleaseAssets)?
+            .ok_or(FetchError::ReleaseAssets)?
             .as_str()
-            .ok_or(ParseError::ReleaseAssets)?;
+            .ok_or(FetchError::ReleaseAssets)?;
 
         let asset_url = asset_json
             .pointer("/browser_download_url")
-            .ok_or(ParseError::ReleaseAssets)?
+            .ok_or(FetchError::ReleaseAssets)?
             .as_str()
-            .ok_or(ParseError::ReleaseAssets)?;
+            .ok_or(FetchError::ReleaseAssets)?;
 
         assets.push(AssetInformation {
             name: asset_name.to_string(),
@@ -77,7 +103,16 @@ pub fn fetch_hashes(release_info: &ReleaseInformation) -> anyhow::Result<String>
         Some(hashes_asset) => hashes_asset,
     };
 
-    Ok(http::download_str(hashes_asset.url.as_str(), None).map_err(|_| HashesError::FetchError)?)
+    let response =
+        api_get_request(hashes_asset.url.as_str()).map_err(|_| HashesError::FetchError)?;
+    if response.status != 200 {
+        if response.status == 403 {
+            return Err(FetchError::Forbidden.into());
+        }
+        return Err(FetchError::RequestError.into());
+    }
+
+    Ok(response.data)
 }
 
 pub fn parse_hashes(s: &str) -> HashMap<&str, &str> {
@@ -95,17 +130,23 @@ pub fn parse_hashes(s: &str) -> HashMap<&str, &str> {
     map
 }
 
-pub enum ParseError {
-    FetchError,
+pub enum FetchError {
+    RequestError,
+    Forbidden,
     InvalidResponse,
     TagName,
     ReleaseAssets,
 }
 
-impl ParseError {
+impl FetchError {
     fn message(&self) -> &str {
         match self {
-            Self::FetchError => "Failed to fetch latest release information",
+            Self::RequestError => {
+                "Couldn't check for updates at the moment. Please try again later."
+            }
+            Self::Forbidden => {
+                "Communication with GitHub API not allowed at the moment. Please try again later."
+            }
             Self::InvalidResponse => "Invalid JSON response from GitHub API",
             Self::TagName => "Couldn't get tag name",
             Self::ReleaseAssets => "Couldn't get release assets",
@@ -113,19 +154,19 @@ impl ParseError {
     }
 }
 
-impl Display for ParseError {
+impl Display for FetchError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "{}", self.message())
     }
 }
 
-impl Debug for ParseError {
+impl Debug for FetchError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "{}", self.message())
     }
 }
 
-impl Error for ParseError {}
+impl Error for FetchError {}
 
 pub enum HashesError {
     AssetNotFound,

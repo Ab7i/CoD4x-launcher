@@ -41,7 +41,7 @@ extern "system" fn run(hinstance: LPVOID) -> DWORD {
     #[cfg(feature = "cod4v17_patch")]
     if let Err(e) = patch::patch_iw3mp() {
         message_box(
-            format!("Failed to patch iw3mp.exe: {e}\nContinue on your own risk!").as_str(),
+            format!("Failed to patch iw3mp.exe: {e}\nContinue at your own risk!").as_str(),
             "Error",
         );
     }
