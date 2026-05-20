@@ -1,7 +1,5 @@
 use super::filesystem as fs;
-use core::ffi::{c_char, CStr};
 use libloading::Library;
-use semver::Version;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use winapi::shared::minwindef::HINSTANCE;
@@ -25,21 +23,6 @@ pub fn run(hinstance: HINSTANCE, version: Option<&String>) -> anyhow::Result<()>
     }
 
     Err(CoD4xLoadError::MissingEntrypoint.into())
-}
-
-pub fn get_module_version() -> anyhow::Result<Version> {
-    unsafe {
-        let module = load_module(None)?;
-        type TGetCoD4xVersion = unsafe extern "C" fn() -> *const c_char;
-        let get_cod4x_version = module.get::<TGetCoD4xVersion>(b"GetCoD4xVersion\0")?;
-
-        let mut version_str = CStr::from_ptr(get_cod4x_version()).to_str()?.to_string();
-        if version_str.matches('.').count() < 2 {
-            version_str.push_str(".0");
-        }
-
-        Ok(Version::parse(version_str.as_str())?)
-    }
 }
 
 fn load_module(version: Option<&String>) -> anyhow::Result<libloading::Library> {

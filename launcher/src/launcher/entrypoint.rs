@@ -13,7 +13,6 @@ use super::iw3mp;
 use super::miles32;
 use super::module;
 use super::msg_box::*;
-use super::updater;
 
 extern "system" fn run(hinstance: LPVOID) -> DWORD {
     let hinstance = hinstance as HINSTANCE;
@@ -22,14 +21,6 @@ extern "system" fn run(hinstance: LPVOID) -> DWORD {
     let run_legacy = legacy_arg.is_some_and(|v| v == "1");
     if !run_legacy {
         let version = get_cmdline_value("protocolversion", &cmdline_args);
-        if version.is_none() {
-            let elevated_arg = get_cmdline_value("elevated", &cmdline_args);
-            let elevated = elevated_arg.is_some_and(|v| v == "1");
-            if let Err(e) = updater::run_updater(elevated) {
-                message_box(format!("Failed to run updater: {e}").as_str(), "Error");
-            }
-        }
-
         match cod4x::run(hinstance, version) {
             Err(e) => {
                 message_box(format!("{e}").as_str(), "Error");
@@ -79,66 +70,29 @@ extern "C" fn StartLauncher(
         fs::set_current_directory(install_dir);
     }
 
-    let cmdline_args: Vec<_> = std::env::args().collect();
-    let elevated_arg = get_cmdline_value("elevated", &cmdline_args);
-    let elevated = elevated_arg.is_some_and(|v| v == "1");
-
+    // Sandbox build: no auto-fix, no network. A clean iw3mp.exe v1.7 is
+    // required up front -- bail out cleanly instead of crashing on the
+    // hardcoded WinMain addresses if it is not.
     if !iw3mp::is_pure() || !iw3mp::is_large_address_aware() {
-        if !elevated {
-            message_box(
-                "Impure iw3mp.exe detected.\nAttempting to fix...",
-                "CoD4x Launcher",
-            );
-        }
-        fs::disable_directory_virtualization();
-        if let Err(e) = iw3mp::replace_module() {
-            message_box(
-                format!(
-                    "Failed to replace iw3mp.exe: {e}\n\n \
-                    Please, copy the original iw3mp.exe v1.7 into the\n \
-                    CoD4 installation folder and try again."
-                )
-                .as_str(),
-                "CoD4x Launcher",
-            );
-        } else {
-            message_box(
-                "Successfully fixed iw3mp.exe.\nYou can restart the game now.",
-                "CoD4x Launcher",
-            );
-        }
+        message_box(
+            "Impure or non-large-address-aware iw3mp.exe detected.\n\
+             A clean iw3mp.exe v1.7 is required to continue.",
+            "CoD4x Launcher",
+        );
         std::process::exit(0);
     }
 
+    // Load miles32.dll locally and forward the Miles import table that the
+    // mss32 proxy handed us. No replacement / download on failure.
     let _miles32 = match miles32::load_module(mss32importprocs, mss32importnames, mss32importcount)
     {
         Ok(lib) => lib,
         Err(e) => {
-            if !elevated {
-                message_box(
-                    format!("Failed to load miles32.dll: {e}\nAttempting to fix...").as_str(),
-                    "CoD4x Launcher",
-                );
-            }
-            fs::disable_directory_virtualization();
-            if let Err(e) = miles32::replace_module() {
-                message_box(
-                    format!(
-                        "Failed to replace miles32.dll: {e}\n\n \
-                        Please, copy the original miles32.dll into the\n \
-                        CoD4 installation folder and try again."
-                    )
-                    .as_str(),
-                    "CoD4x Launcher",
-                );
-                return;
-            } else {
-                message_box(
-                    "Successfully fixed miles32.dll.\nYou can restart the game now.",
-                    "CoD4x Launcher",
-                );
-            }
-            std::process::exit(0);
+            message_box(
+                format!("Failed to load miles32.dll: {e}").as_str(),
+                "CoD4x Launcher",
+            );
+            return;
         }
     };
 

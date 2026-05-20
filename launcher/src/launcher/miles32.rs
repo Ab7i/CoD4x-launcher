@@ -1,10 +1,4 @@
-use super::filesystem as fs;
-use super::http;
 use super::module;
-use super::process;
-use super::sha1;
-use super::zip;
-use crate::launcher::updater::github;
 use core::ffi::{c_char, c_void, CStr};
 use libloading::Library;
 use std::error::Error;
@@ -46,61 +40,6 @@ pub fn load_module(
 
         Ok(lib)
     }
-}
-
-pub fn replace_module() -> anyhow::Result<()> {
-    let module_path = module::get_path();
-    let install_dir = module_path
-        .parent()
-        .ok_or(ReplaceMiles32Error::InvalidPath)?;
-
-    if !fs::is_writable(install_dir) {
-        crate::launcher::msg_box::message_box(
-            "CoD4x launcher needs to update file miles32.dll and will require elevated permissions",
-            "Call of Duty 4 - Launcher",
-        );
-        process::restart(process::Privileges::Admin, Some("+set elevated 1"))?;
-    }
-
-    let savepath = fs::appdata_bin_path()?;
-    let zip_miles32_path = savepath.join("miles32.zip");
-    let org_miles32_path = savepath.join("miles32.dll");
-    let new_miles32_path = install_dir.join("miles32.dll");
-    std::fs::create_dir_all(&savepath)?;
-
-    const MILES32_HASH: &str = "055dc05a4c175b84dffb87b2380714128e5b27dd";
-
-    if sha1::digest(org_miles32_path.as_path())
-        .map_or(true, |module_hash| module_hash != MILES32_HASH)
-    {
-        let release_info = github::fetch_release_information("callofduty4x/CoD4x_Client_pub")?;
-        let mss_asset =
-            github::find_asset(&release_info, "^mss$").ok_or(ReplaceMiles32Error::AssetNotFound)?;
-
-        http::download_file(
-            mss_asset.url.as_str(),
-            zip_miles32_path.as_path(),
-            &http::DummyProgress {},
-        )?;
-
-        zip::extract_file(
-            zip_miles32_path.as_path(),
-            std::path::Path::new("miles32.dll"),
-            org_miles32_path.as_path(),
-        )?;
-
-        if sha1::digest(org_miles32_path.as_path())
-            .map_or(true, |module_hash| module_hash != MILES32_HASH)
-        {
-            return Err(ReplaceMiles32Error::IntegrityFailure.into());
-        } else {
-            std::fs::remove_file(zip_miles32_path.as_path()).ok();
-        }
-    }
-
-    std::fs::copy(org_miles32_path, new_miles32_path)?;
-
-    Ok(())
 }
 
 fn c_strings_to_slices<'a>(ptr: *const *const c_char, count: i32) -> Vec<&'a [u8]> {
@@ -151,33 +90,3 @@ impl Debug for Miles32LoadError {
 }
 
 impl Error for Miles32LoadError {}
-
-enum ReplaceMiles32Error {
-    InvalidPath,
-    IntegrityFailure,
-    AssetNotFound,
-}
-
-impl ReplaceMiles32Error {
-    fn message(&self) -> &str {
-        match self {
-            Self::InvalidPath => "Invalid path",
-            Self::IntegrityFailure => "Integrity verification failed",
-            Self::AssetNotFound => "Couldn't find asset",
-        }
-    }
-}
-
-impl Display for ReplaceMiles32Error {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "{}", self.message())
-    }
-}
-
-impl Debug for ReplaceMiles32Error {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "{}", self.message())
-    }
-}
-
-impl Error for ReplaceMiles32Error {}
